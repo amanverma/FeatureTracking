@@ -1,0 +1,544 @@
+Index: RegistrationTests.cpp
+===================================================================
+--- RegistrationTests.cpp	(revision 0)
++++ RegistrationTests.cpp	(working copy)
+@@ -0,0 +1,266 @@
++#define BOOST_TEST_MODULE RegistrationTests
++#include <boost/test/unit_test.hpp>
++#include <iostream>
++#include "Registration.h"
++#include "MergedSetRegistration.h"
++#include "IndividualFrameRegistration.h"
++#include "ExistingTransformRegistration.h"
++#include "Track.h"
++#include <pcl/point_cloud.h>
++
++#include "common.h"
++#include <Eigen/Eigen>
++#include <Eigen/Core>
++#include <Eigen/Geometry>
++#include<Eigen/StdVector>
++using namespace std;
++typedef std::pair<PointCloud3D::Ptr, Matrix4fUnaligned> FrameType;
++namespace Tracking
++{
++
++BOOST_AUTO_TEST_CASE(MergedSetRegistrationCheck)
++{
++	RegistrationMethodBase *MSR = new MergedSetRegistration();
++	MSR->SetEuclideanFitnessEpsilon(0.85);
++	MSR->SetMaximumIterations(250);
++	MSR->SetMaxCorrespondenceDistance(5.0);
++	MSR->SetRANSACIterations(10);
++	MSR->SetTransformationEpsilon(1.0);
++	MSR->Setshuffle(true);
++	MSR->SetskipAdding(false);
++	MSR->SetmaximumFitness(0.5);
++
++	//Target Merged Point Cloud
++	double ip1[15] =	 {-39.8744010925293, 54.588401794433594, 0.0,
++						-49.35940170288086, 57.1968994140625, 0.0,
++						-40.0078010559082, 59.122100830078125, 0.0,
++						-40.0181999206543, 63.93510055541992, 0.0,
++						-49.554298400878906, 64.23429870605469, 0.0};
++	Track *track = new Track();
++	PointCloud3D::Ptr Cloud(new PointCloud3D());
++	for(int i=0;i<15;i+=3)
++	{
++		pcl::PointXYZ pclpoint1(ip1[i],ip1[i+1],ip1[i+2]);
++		Cloud->push_back(pclpoint1);
++	}
++	//KeyPoints
++	double ip2[15] =	{-39.558998107910156, 54.55419921875, 0.0,
++						-49.14939880371094, 57.10129928588867, 0.0,
++						-39.63460159301758, 59.13090133666992, 0.0,
++						-39.63750076293945, 63.95000076293945, 0.0,
++						-49.40530014038086, 64.15260314941406, 0.0};
++	PointCloud3D::Ptr keypoints(new PointCloud3D());
++	for(int i=0;i<15;i+=3)
++	{
++		pcl::PointXYZ pclpoint2(ip2[i],ip2[i+1],ip2[i+2]);
++		keypoints->push_back(pclpoint2);
++	}
++	Eigen::Matrix4f transform;
++	transform.setIdentity();
++	MSR->SetlastTransform(transform);
++	FrameType frame;
++	frame.first = Cloud;
++	transform  = MSR->GetlastTransform();
++	frame.second = transform;
++	
++	track->AppendMergedPoints(frame);
++	//track->SetMergedPointCloud(Cloud);
++	bool converged = MSR->Register(track,keypoints);	
++	cout<<"Merged Set Registration-: "<<"  "<<"converged"<<"   "<<converged<<endl;
++	BOOST_CHECK_EQUAL(converged,true);
++}
++
++
++BOOST_AUTO_TEST_CASE( IndividualFrameRegistrationCheck )
++{
++	RegistrationMethodBase *MSR = new MergedSetRegistration();
++	MSR->SetEuclideanFitnessEpsilon(0.85);
++	MSR->SetMaximumIterations(250);
++	MSR->SetMaxCorrespondenceDistance(5.0);
++	MSR->SetRANSACIterations(10);
++	MSR->SetTransformationEpsilon(1.0);
++	MSR->Setshuffle(true);
++	MSR->SetskipAdding(false);
++	MSR->SetmaximumFitness(0.5);
++
++	//Target Merged Point Cloud
++	double ip1[15] =	 {-39.8744010925293, 54.588401794433594, 0.0,
++						-49.35940170288086, 57.1968994140625, 0.0,
++						-40.0078010559082, 59.122100830078125, 0.0,
++						-40.0181999206543, 63.93510055541992, 0.0,
++						-49.554298400878906, 64.23429870605469, 0.0};
++	Track *track = new Track();
++	PointCloud3D::Ptr Cloud1(new PointCloud3D());
++	for(int i=0;i<15;i+=3)
++	{
++		pcl::PointXYZ pclpoint1(ip1[i],ip1[i+1],ip1[i+2]);
++		Cloud1->push_back(pclpoint1);
++	}
++	//KeyPoints
++	double ip2[15] =	{-39.558998107910156, 54.55419921875, 0.0,
++						-49.14939880371094, 57.10129928588867, 0.0,
++						-39.63460159301758, 59.13090133666992, 0.0,
++						-39.63750076293945, 63.95000076293945, 0.0,
++						-49.40530014038086, 64.15260314941406, 0.0};
++	PointCloud3D::Ptr Cloud2(new PointCloud3D());
++	for(int i=0;i<15;i+=3)
++	{
++		pcl::PointXYZ pclpoint2(ip2[i],ip2[i+1],ip2[i+2]);
++		Cloud2->push_back(pclpoint2);
++	}
++	Eigen::Matrix4f transform;
++	transform.setIdentity();
++	MSR->SetlastTransform(transform);
++	FrameType frame;
++	frame.first = Cloud1;
++	transform  = MSR->GetlastTransform();
++	frame.second = transform;	
++	track->AppendMergedPoints(frame);
++	//track->SetMergedPointCloud(Cloud);
++	bool converged = MSR->Register(track,Cloud2);	
++	cout<<"Merged Set Registration1: "<<"  "<<"converged"<<"   "<<converged<<endl;
++	BOOST_CHECK_EQUAL(converged,true);
++	double ip3[15] =	{-39.21689987182617, 54.52050018310547, 0.0,
++							-48.96139907836914, 57.00230026245117, 0.0,
++							-39.27560043334961, 59.11949920654297, 0.0,
++							-39.31850051879883, 63.92100143432617, 0.0,
++							-49.2578010559082, 64.0, 0.0};
++	PointCloud3D::Ptr Cloud3(new PointCloud3D());
++	for(int i=0;i<15;i+=3)
++	{
++		pcl::PointXYZ pclpoint3(ip2[i],ip2[i+1],ip2[i+2]);
++		Cloud3->push_back(pclpoint3);
++	}
++	converged = MSR->Register(track,Cloud3);	
++	cout<<"Merged Set Registration2: "<<"  "<<"converged"<<"   "<<converged<<endl;
++	BOOST_CHECK_EQUAL(converged,true);
++	double ip4[15] =	{-38.859500885009766, 54.54290008544922, 0.0,
++						-48.512901306152344, 57.08940124511719, 0.0,
++						-38.91080093383789, 59.14699935913086, 0.0,
++						-38.88750076293945, 63.967498779296875, 0.0,
++						 -48.88570022583008, 64.02860260009766, 0.0};
++	PointCloud3D::Ptr Cloud4(new PointCloud3D());
++	for(int i=0;i<15;i+=3)
++	{
++		pcl::PointXYZ pclpoint4(ip2[i],ip2[i+1],ip2[i+2]);
++		Cloud4->push_back(pclpoint4);
++	}
++	RegistrationMethodBase *IFR = new IndividualFrameRegistration();
++	IFR->SetNumberOfFramesForAlignment(3);
++	converged = IFR->Register(track, Cloud4);	
++	cout<<"Individual Frame Set Registration"<<" "<<"converged"<<" "<<converged<<endl;
++	BOOST_CHECK_EQUAL(converged, 1);
++}
++
++BOOST_AUTO_TEST_CASE(ExistingTransformRegistrationTest)
++{
++	RegistrationMethodBase *MSR = new MergedSetRegistration();
++	MSR->SetEuclideanFitnessEpsilon(0.80);
++	MSR->SetMaximumIterations(250);
++	MSR->SetMaxCorrespondenceDistance(5.0);
++	MSR->SetRANSACIterations(10);
++	MSR->SetTransformationEpsilon(1.0);
++	MSR->Setshuffle(true);
++	MSR->SetskipAdding(false);
++	MSR->SetmaximumFitness(0.5);
++
++	//Target Merged Point Cloud
++	double ip1[15] =	 {-39.8744010925293, 54.588401794433594, 0.0,
++						-49.35940170288086, 57.1968994140625, 0.0,
++						-40.0078010559082, 59.122100830078125, 0.0,
++						-40.0181999206543, 63.93510055541992, 0.0,
++						-49.554298400878906, 64.23429870605469, 0.0};
++	Track *track = new Track();
++	PointCloud3D::Ptr Cloud1(new PointCloud3D());
++	for(int i=0;i<15;i+=3)
++	{
++		pcl::PointXYZ pclpoint1(ip1[i],ip1[i+1],ip1[i+2]);
++		Cloud1->push_back(pclpoint1);
++	}
++	//KeyPoints
++	double ip2[15] =	{-39.558998107910156, 54.55419921875, 0.0,
++						-49.14939880371094, 57.10129928588867, 0.0,
++						-39.63460159301758, 59.13090133666992, 0.0,
++						-39.63750076293945, 63.95000076293945, 0.0,
++						-49.40530014038086, 64.15260314941406, 0.0};
++	PointCloud3D::Ptr Cloud2(new PointCloud3D());
++	for(int i=0;i<15;i+=3)
++	{
++		pcl::PointXYZ pclpoint2(ip2[i],ip2[i+1],ip2[i+2]);
++		Cloud2->push_back(pclpoint2);
++	}
++	Eigen::Matrix4f transform;
++	transform.setIdentity();
++	MSR->SetlastTransform(transform);
++	FrameType frame;
++	frame.first = Cloud1;
++	transform  = MSR->GetlastTransform();
++	frame.second = transform;	
++	track->AppendMergedPoints(frame);
++	//track->SetMergedPointCloud(Cloud);
++	bool converged = MSR->Register(track,Cloud2);	
++	cout<<"Merged Set Registration1: "<<"  "<<"converged"<<"   "<<converged<<endl;
++	BOOST_CHECK_EQUAL(converged,true);
++	double ip3[15] =	{-39.21689987182617, 54.52050018310547, 0.0,
++							-48.96139907836914, 57.00230026245117, 0.0,
++							-39.27560043334961, 59.11949920654297, 0.0,
++							-39.31850051879883, 63.92100143432617, 0.0,
++							-49.2578010559082, 64.0, 0.0};
++	PointCloud3D::Ptr Cloud3(new PointCloud3D());
++	for(int i=0;i<15;i+=3)
++	{
++		pcl::PointXYZ pclpoint3(ip2[i],ip2[i+1],ip2[i+2]);
++		Cloud3->push_back(pclpoint3);
++	}
++	converged = MSR->Register(track,Cloud3);	
++	cout<<"Merged Set Registration2: "<<"  "<<"converged"<<"   "<<converged<<endl;
++	BOOST_CHECK_EQUAL(converged,true);
++	double ip4[15] =	{-38.859500885009766, 54.54290008544922, 0.0,
++						-48.512901306152344, 57.08940124511719, 0.0,
++						-38.91080093383789, 59.14699935913086, 0.0,
++						-38.88750076293945, 63.967498779296875, 0.0,
++						 -48.88570022583008, 64.02860260009766, 0.0};
++	PointCloud3D::Ptr Cloud4(new PointCloud3D());
++	for(int i=0;i<15;i+=3)
++	{
++		pcl::PointXYZ pclpoint4(ip2[i],ip2[i+1],ip2[i+2]);
++		Cloud4->push_back(pclpoint4);
++	}
++	RegistrationMethodBase *IFR = new IndividualFrameRegistration();
++	IFR->SetEuclideanFitnessEpsilon(0.80);
++	IFR->SetMaximumIterations(250);
++	IFR->SetMaxCorrespondenceDistance(5.0);
++	IFR->SetRANSACIterations(10);
++	IFR->SetTransformationEpsilon(1.0);
++	IFR->Setshuffle(true);
++	IFR->SetskipAdding(false);
++	IFR->SetmaximumFitness(0.5);
++	IFR->SetNumberOfFramesForAlignment(3);
++	converged = IFR->Register(track, Cloud4);	
++	cout<<"Individual Frame Set Registration"<<" "<<"converged"<<" "<<converged<<endl;
++	BOOST_CHECK_EQUAL(converged, 1);
++	double ip5[15] =	{-38.859500885009766, 54.54290008544922, 0.0,
++						-48.512901306152344, 57.08940124511719, 0.0,
++						-38.91080093383789, 59.14699935913086, 0.0,
++						-38.88750076293945, 63.967498779296875, 0.0,
++						 -48.88570022583008, 64.02860260009766, 0.0};
++	PointCloud3D::Ptr Cloud5(new PointCloud3D());
++	for(int i=0;i<15;i+=3)
++	{
++		pcl::PointXYZ pclpoint5(ip2[i],ip2[i+1],ip2[i+2]);
++		Cloud5->push_back(pclpoint5);
++	}
++	RegistrationMethodBase *ETR = new ExistingTransformRegistration();
++	ETR->SetEuclideanFitnessEpsilon(0.80);
++	ETR->SetMaximumIterations(250);
++	ETR->SetMaxCorrespondenceDistance(5.0);
++	ETR->SetRANSACIterations(10);
++	ETR->SetTransformationEpsilon(1.0);
++	ETR->Setshuffle(true);
++	ETR->SetskipAdding(false);
++	ETR->SetmaximumFitness(0.5);
++	converged = ETR->Register(track,Cloud5);
++	cout<<"Existing Transform Registration "<<" "<<"Converged"<<" "<<converged<<endl;
++	BOOST_CHECK_EQUAL(converged,1);
++}
++}
+Index: Track.cpp
+===================================================================
+--- Track.cpp	(revision 83719)
++++ Track.cpp	(working copy)
+@@ -33,6 +33,7 @@
+ {
+ 	Track::Track(void)
+ 	{
++		this->tolerance = 4.0;
+ 		this->mergedPointCloud.reset(new PointCloud3D);
+ 		this->mergedPointKDTree = pcl::KdTreeFLANN<pcl::PointXYZ>();
+ 		this->mergedPoints = vtkSmartPointer<vtkPolyData>::New();
+@@ -50,25 +51,34 @@
+ 	Track::~Track()
+ 	{
+ 	}
+-	PointCloudCollection & Track::GetFragments()
++	pcl::KdTreeFLANN<pcl::PointXYZ> Track::GetmergedPointKDTree()
+ 	{
+-		return this->fragments;
++		return this->mergedPointKDTree;
+ 	}
++	PointCloudCollection & Track::GetFrameCollection()
++	{
++		return this->FrameCollection;
++	}
+ 	vtkSmartPointer<vtkPolyData> Track::GetmergedPoints()
+ 	{
+ 		return this->mergedPoints;
+ 	}
+-	void Track::pushbackFragments(FrameType pair)
++	double* Track::GetBoundsOfMergedPoints()
+ 	{
+-		this->fragments.push_back(pair);
++		double *bds = this->mergedPoints->GetBounds();
++		return bds;
+ 	}
++	void Track::pushbackFrameCollection(FrameType pair)
++	{
++		this->FrameCollection.push_back(pair);
++	}
+ 	void Track::push_backPoint(PointCloud3D::iterator pt)
+ 	{
+ 		this->mergedPointCloud->push_back(*pt);
+ 	}
+-	void Track::SetFragments(PointCloudCollection &pcc)
++	void Track::SetFrameCollection(PointCloudCollection &pcc)
+ 	{
+-		this->fragments = pcc;
++		this->FrameCollection = pcc;
+ 	}
+ 	PointCloud3D::Ptr Track::GetmergedPointCloud()
+ 	{
+@@ -104,9 +114,10 @@
+ 	{
+ 		this->mergedPointCloud->clear();
+ 	}
+-	int Track::FindnClosePointsRadiusSearchKDTree(PointCloud3D::iterator pt,vector<int> pointIds, vector<float> distances)
++	int Track::GetnClosePoints(pcl::PointXYZ *ptTransformed, float tolerance, std::vector<int> indices, std::vector<float> dists)
+ 	{
+-		return this->mergedPointKDTree.radiusSearch(*pt,this->tolerance, pointIds, distances);
++		int nclosePoints = this->mergedPointKDTree.radiusSearch(*ptTransformed, tolerance, indices, dists);
++		return nclosePoints;
+ 	}
+ 	void Track:: AppendMergedPoints(FrameType frame)
+ 	{
+Index: Track.h
+===================================================================
+--- Track.h	(revision 83719)
++++ Track.h	(working copy)
+@@ -4,6 +4,7 @@
+ #include <vtkPolyData.h>
+ #include <vtkSmartPointer.h>
+ #include <pcl/point_cloud.h>
++#include <pcl/point_types.h>
+ #include <vector>
+ typedef std::pair<PointCloud3D::Ptr, Matrix4fUnaligned> FrameType;
+ typedef std::vector<FrameType, Eigen::aligned_allocator<FrameType> > PointCloudCollection;
+@@ -16,7 +17,8 @@
+ private:
+ 	int frameIdx;
+ 	float tolerance;
+-	PointCloudCollection fragments;	
++	//fragments
++	PointCloudCollection FrameCollection;
+ 	// The kd-tree for the merged cloud.
+ 	pcl::KdTreeFLANN<pcl::PointXYZ> mergedPointKDTree;	
+ 	// The merged point cloud (PCL format)
+@@ -30,20 +32,22 @@
+ 	Track(void);
+ 	~Track();
+ 	PointCloud3D::Ptr GetmergedPointCloud();
+-	PointCloudCollection & GetFragments();
+-	int FindnClosePointsRadiusSearchKDTree(PointCloud3D::iterator pt, std::vector<int> pointIds, std::vector<float> distances);
++	PointCloudCollection & GetFrameCollection();
+ 	float GetTolerance();
+ 	void SetTolerance(float value);
+ 	void SetframeIdx(int value);
+ 	int GetframeIdx();
++	pcl::KdTreeFLANN<pcl::PointXYZ> GetmergedPointKDTree();
+ 	vtkSmartPointer<vtkPolyData> GetmergedPoints();
+ 	void ClearMergedPointCloud();
+-	void pushbackFragments(FrameType pair);
++	void pushbackFrameCollection(FrameType pair);
+ 	void push_backPoint(PointCloud3D::iterator it);
+-	void SetFragments(PointCloudCollection &pcc);
++	void SetFrameCollection(PointCloudCollection &pcc);
+ 	void SetMergedPointCloud(PointCloud3D::Ptr cloud);
+ 	void SetInputCloudInmergedPointKDTree(PointCloud3D::Ptr mergedPointCloud);
+ 	void AppendMergedPoints(FrameType frame);
+ 	void Reset();
++	int GetnClosePoints(pcl::PointXYZ *ptTransformed, float tolerance, std::vector<int> indices, std::vector<float> dists);
++	double* GetBoundsOfMergedPoints();
+ };
+ }
+Index: TrackTests.cpp
+===================================================================
+--- TrackTests.cpp	(revision 83719)
++++ TrackTests.cpp	(working copy)
+@@ -1,29 +1,29 @@
+-#define BOOST_TEST_MODULE Track
+-#include <boost/test/unit_test.hpp>
+-#include <vtkPolyData.h>
+-#include <vtkSmartPointer.h>
+-#include <iostream>
+-#include "Track.h"
+-#include "common.h"
++#define BOOST_TEST_MODULE Track
++#include <boost/test/unit_test.hpp>
++#include <vtkPolyData.h>
++#include <vtkSmartPointer.h>
++#include <iostream>
++#include "Track.h"
++#include "common.h"
+ #include <Eigen/Eigen>
+ #include <Eigen/Core>
+ #include <Eigen/Geometry>
+-#include<Eigen/StdVector>
+-using namespace std;
+-
+-typedef std::pair<PointCloud3D::Ptr, Matrix4fUnaligned> FrameType;
+-namespace Tracking
+-{
+-BOOST_AUTO_TEST_CASE(AppendMergedPointCheck)
+-{
+-	FrameType Frame1;
+-	FrameType Frame2;
+-	PointCloud3D::Ptr input1(new PointCloud3D());
+-	PointCloud3D::Ptr input2(new PointCloud3D());
+-	PointCloud3D::Ptr output(new PointCloud3D());
+-	/* Two input clouds (frames) are merged using AppendMergedPoints and then the existing mergedPointCloud is
+-	compared to the existing output data for first two frames*/
+-	//Input1
++#include<Eigen/StdVector>
++using namespace std;
++
++typedef std::pair<PointCloud3D::Ptr, Matrix4fUnaligned> FrameType;
++namespace Tracking
++{
++BOOST_AUTO_TEST_CASE(AppendMergedPointCheck)
++{
++	FrameType Frame1;
++	FrameType Frame2;
++	PointCloud3D::Ptr input1(new PointCloud3D());
++	PointCloud3D::Ptr input2(new PointCloud3D());
++	PointCloud3D::Ptr output(new PointCloud3D());
++	/* Two input clouds (frames) are merged using AppendMergedPoints and then the existing mergedPointCloud is
++	compared to the existing output data for first two frames*/
++	//Input1
+ 	double ip1[60] = {-16.9328, -5.03726, -3.67727,
+ 						-23.0424, 19.2503, -3.72669,
+ 						-8.18342, 18.0827, 7.18381,
+@@ -34,7 +34,7 @@
+ 						3.45037, 16.128, 26.0289,
+ 						-4.58732, -8.09004, -17.0914,
+ 						-14.3139, -19.8503, -16.2205,
+-						-7.93145, -29.697850, -13.339191,						
++						-7.93145, -29.697850, -13.339191,						
+ 						 12.6418, 28.005, 29.9846,
+ 						  1.452, -2.21537, -9.5479,
+ 						 -16.9386, -17.5294, -15.6458,
+@@ -44,11 +44,11 @@
+ 						 -20.9866, -9.73201, -3.16905,
+ 						  21.7709, 15.543, -8.64269,
+ 						  -14.3728, 12.034, -22.4026};
+-						
+-
++						
++
+ 	
+-					
+-	//Input2
++					
++	//Input2
+ 	double ip2[45] = {-16.6759, -5.01147, -3.73686,
+ 						-7.92882, 18.0498, 7.09881,
+ 						21.0945, -4.91595, -26.6993,
+@@ -63,23 +63,23 @@
+ 						-15.1092, 7.71103, 5.29995,
+ 						-2.63926, 16.5113, 10.5604,
+ 						21.9684, 15.6034, -8.65639,
+-						-14.0451, 11.8596, -22.4625};
+-	for(int i=0;i<60;i+=3)
+-	{
+-		pcl::PointXYZ pclpoint1(ip1[i],ip1[i+1],ip1[i+3]);
+-		input1->push_back(pclpoint1);
+-	}
+-	for(int i=0;i<45;i+=3)
+-	{
+-		pcl::PointXYZ pclpoint2(ip2[i],ip2[i+1],ip2[i+3]);
+-		input2->push_back(pclpoint2);
+-	}
+-	Frame1.first = input1;
+-	Frame2.first = input2;
+-	Frame1.second = Eigen::Matrix4f::Identity();
+-	Frame2.second = Eigen::Matrix4f::Identity();
+-//35 points in input
+-	//Existing Ouput Data
++						-14.0451, 11.8596, -22.4625};
++	for(int i=0;i<60;i+=3)
++	{
++		pcl::PointXYZ pclpoint1(ip1[i],ip1[i+1],ip1[i+3]);
++		input1->push_back(pclpoint1);
++	}
++	for(int i=0;i<45;i+=3)
++	{
++		pcl::PointXYZ pclpoint2(ip2[i],ip2[i+1],ip2[i+3]);
++		input2->push_back(pclpoint2);
++	}
++	Frame1.first = input1;
++	Frame2.first = input2;
++	Frame1.second = Eigen::Matrix4f::Identity();
++	Frame2.second = Eigen::Matrix4f::Identity();
++//35 points in input
++	//Existing Ouput Data
+ 	double op[75]= {-16.9328, -5.03726, -3.67727,
+ 					 -23.0424, 19.2503, -3.72669,
+ 					 -8.18342, 18.0827, 7.18381,
+@@ -104,16 +104,16 @@
+ 					 -17.022, -17.5939, -15.5492,
+ 					 -3.50899, 15.7382, 4.40424,
+ 					 -7.88715, 0.512126, -19.6916,
+-					 -14.2685, 11.9069, -22.4087};
+-
+-	for(int i=0;i<75;i+=3)//25 points in output
+-	{
+-		pcl::PointXYZ pclpoint(op[i],op[i+1],op[i+3]);
+-		output->push_back(pclpoint);
+-	}
+-	Track * t = new Track();
+-	t->AppendMergedPoints(Frame1);
+-	t->AppendMergedPoints(Frame2);
++					 -14.2685, 11.9069, -22.4087};
++
++	for(int i=0;i<75;i+=3)//25 points in output
++	{
++		pcl::PointXYZ pclpoint(op[i],op[i+1],op[i+3]);
++		output->push_back(pclpoint);
++	}
++	Track * t = new Track();
++	t->AppendMergedPoints(Frame1);
++	t->AppendMergedPoints(Frame2);
+ 	PointCloud3D::iterator iv = t->GetmergedPointCloud()->begin();
+ 	int i = 0;
+ 	for(iv ; iv < t->GetmergedPointCloud()->end() ; ++iv)
+@@ -126,5 +126,5 @@
+ 			i+=3;
+ 		}
+ 
+-	}
++	}
+ }
+\ No newline at end of file

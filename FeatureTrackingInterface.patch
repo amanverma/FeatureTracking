@@ -1,0 +1,583 @@
+Index: ExistingTransformRegistration.cpp
+===================================================================
+--- ExistingTransformRegistration.cpp	(revision 0)
++++ ExistingTransformRegistration.cpp	(working copy)
+@@ -0,0 +1,92 @@
++//Current headers
++#include "common.h"
++#include "Track.h"
++#include "ExistingTransformRegistration.h"
++//Boost headers
++#include <boost/lexical_cast.hpp>
++#include <boost/property_tree/ptree.hpp>
++#include <boost/tuple/tuple.hpp>
++#include "parameters.h"
++//PCL headers
++#include <pcl/kdtree/kdtree_flann.h>
++#include <pcl/registration/transformation_estimation_lm.h>
++#include <pcl/registration/warp_point_rigid_3d.h>
++#include <pcl/registration/icp.h>
++#include <pcl/registration/ia_ransac.h>
++#include <pcl/registration/icp_nl.h>
++#include <pcl/point_cloud.h>
++#include <pcl/point_types.h>
++#include <pcl/registration/registration.h>
++#include <Eigen/Eigen>
++#include <Eigen/Core>
++#include <Eigen/Geometry>
++#include <Eigen/StdVector>
++//Other headers
++#include <vector>
++#include <deque>
++#include <iostream>
++#include <tuple>
++// Local headers
++#include "VTKPCLBridge.h"
++
++using namespace std;
++typedef std::vector<FrameType, Eigen::aligned_allocator<FrameType> > PointCloudCollection;
++typedef std::pair<PointCloud3D::Ptr, Matrix4fUnaligned> FrameType;
++
++namespace Tracking
++{
++	ExistingTransformRegistration::ExistingTransformRegistration(void)
++	{
++	}
++	ExistingTransformRegistration::~ExistingTransformRegistration()
++	{
++	}
++	bool ExistingTransformRegistration::RegisterInternal(Track *track, PointCloud3D::Ptr keypoints)
++	{
++		double * bds = track->GetBoundsOfMergedPoints();
++		Eigen::Matrix4f m = Eigen::Matrix4f::Identity();
++		for (int i = 0; i < 3; i++)
++		{
++			m(i,3) = (bds[2 * i + 1] - bds[2 * i])/2;
++		}
++		double fitnessmerged;
++		Eigen::Matrix4f transform;
++		PointCloud3D::Ptr targetCloud(new PointCloud3D());
++		targetCloud = track->GetmergedPointCloud();
++		//for (PointCloudCollection::iterator it = this->fragments.begin(); it != this->fragments.end(); ++it)
++		bool converged = this->PerformRegistration(keypoints, targetCloud, fitnessmerged, transform, m);
++		if (converged)
++		{
++			this->SetlastTransform(transform);
++			this->SetFitness(fitnessmerged);
++			return true;
++		}
++		vector<int> indices(track->GetFrameCollection().size());
++		for(int i = 0; i < indices.size(); i++)
++			indices[i] = i;
++		if (this->GetskipAdding() && this->Getshuffle())
++			random_shuffle(indices.begin(), indices.end());
++		for (int i = 0; i < track->GetFrameCollection().size(); i++)
++		{
++			int index = indices[i];
++			Eigen::Matrix4f guess = track->GetFrameCollection()[index].second;
++			bool converged = this->PerformRegistration(keypoints, targetCloud, fitnessmerged, transform, guess);
++			if (converged)
++			{
++				this->SetlastTransform(transform);
++				this->SetFitness(fitnessmerged);
++				/*bool converged2 = this->PerformRegistration(keypoints, this->mergedPointCloud, fitness, transform, transform);
++				if (converged2)
++				{
++					this->fitness = fitness;
++					this->lastTransform = transform;
++				}*/
++				return true;
++			}
++		}
++		return false;
++	}
++
++
++}
++
+Index: ExistingTransformRegistration.h
+===================================================================
+--- ExistingTransformRegistration.h	(revision 0)
++++ ExistingTransformRegistration.h	(working copy)
+@@ -0,0 +1,18 @@
++#pragma once
++#include "common.h"
++#include "Track.h"
++#include "Registration.h"
++using namespace std;
++
++
++namespace Tracking
++{
++	class ExistingTransformRegistration: public RegistrationMethodBase
++	{
++	public:
++		ExistingTransformRegistration(void);
++		~ExistingTransformRegistration();
++		virtual bool RegisterInternal(Track *track, PointCloud3D::Ptr keypoints) override;
++	};
++}
++
+Index: FitnessScore.cpp
+===================================================================
+--- FitnessScore.cpp	(revision 0)
++++ FitnessScore.cpp	(working copy)
+@@ -0,0 +1,85 @@
++// FitnessScore.cpp : Defines the entry point for the console application.
++//
++//#include "stdafx.h"
++#include <fstream>
++#include "FitnessScore.h"
++//Boost headers
++#include <boost/lexical_cast.hpp>
++#include <boost/property_tree/ptree.hpp>
++#include <boost/tuple/tuple.hpp>
++
++//PCL headers
++#include <pcl/kdtree/kdtree_flann.h>
++#include <pcl/registration/transformation_estimation_lm.h>
++#include <pcl/registration/warp_point_rigid_3d.h>
++#include <pcl/registration/icp.h>
++#include <pcl/registration/ia_ransac.h>
++#include <pcl/registration/icp_nl.h>
++#include <pcl/point_cloud.h>
++#include <pcl/point_types.h>
++#include <pcl/registration/registration.h>
++#include <pcl/exceptions.h>
++
++#include <Eigen/Eigen>
++#include <Eigen/Core>
++#include <Eigen/Geometry>
++#include<Eigen/StdVector>
++//VTK headers
++#include <vtkSmartPointer.h>
++#include <vtkTransform.h>
++#include <vtkPoints.h>
++#include <vtkPolyData.h>
++#include <vtkNew.h>
++#include <vtkPolyDataWriter.h>
++#include <vtkIntArray.h>
++#include <vtkPointData.h>
++
++//Other headers
++#include <vector>
++#include <deque>
++#include <iostream>
++typedef pcl::PointCloud<pcl::PointXYZ> PointCloud3D;
++typedef pcl::KdTreeFLANN<pcl::PointXYZ> kdTree_;
++typedef std::pair<double,double> fitness_nr;
++
++
++fitness_nr GetFitnessScore(double maximumFitness, PointCloud3D::Ptr inputTransformedCloud, PointCloud3D::Ptr inputTarget)
++{	
++		kdTree_::Ptr theTree(new kdTree_());
++		theTree->setInputCloud(inputTarget);
++		double fitness_score = 0.0;
++		// Transform the input dataset using the final transformation
++		//PointCloudSource input_transformed;
++		//transformPointCloud (*input_, input_transformed, final_transformation_);
++
++		std::vector<int> nn_indices (1);
++		std::vector<float> nn_dists (1);
++
++		// For each point in the source dataset
++		double nr = 0;
++		for (size_t i = 0; i < inputTransformedCloud->size (); ++i)
++		{
++			Eigen::Vector4f p1 = Eigen::Vector4f (inputTransformedCloud->points[i].x,
++				inputTransformedCloud->points[i].y,
++				inputTransformedCloud->points[i].z, 0);
++			// Find its nearest neighbor in the target
++
++			theTree->nearestKSearch (inputTransformedCloud->points[i], 1, nn_indices, nn_dists);
++			// Deal with occlusions (incomplete targets)
++			if (nn_dists[0] > maximumFitness)
++				continue;
++
++			Eigen::Vector4f p2 = Eigen::Vector4f (inputTarget->points[nn_indices[0]].x,
++				inputTarget->points[nn_indices[0]].y,
++				inputTarget->points[nn_indices[0]].z, 0);
++			// Calculate the fitness score
++			fitness_score += fabs ((p1-p2).squaredNorm ());
++			nr++;	
++		}  
++
++		/* Check whether nr satisfies atleast 60-80% of the total number of points in the input cloud
++		or not pass on the fitness score as well as nr value to main and then check */
++			fitness_score = fitness_score/nr;
++			fitness_nr thePair(fitness_score,nr);	
++		return thePair;
++}
+Index: FitnessScore.h
+===================================================================
+--- FitnessScore.h	(revision 0)
++++ FitnessScore.h	(working copy)
+@@ -0,0 +1,50 @@
++//Boost headers
++#include <boost/lexical_cast.hpp>
++#include <boost/property_tree/ptree.hpp>
++#include <boost/tuple/tuple.hpp>
++
++//PCL headers
++#include <pcl/kdtree/kdtree_flann.h>
++#include <pcl/registration/transformation_estimation_lm.h>
++#include <pcl/registration/warp_point_rigid_3d.h>
++#include <pcl/registration/icp.h>
++#include <pcl/registration/ia_ransac.h>
++#include <pcl/registration/icp_nl.h>
++#include <pcl/point_cloud.h>
++#include <pcl/point_types.h>
++#include <pcl/registration/registration.h>
++
++#include <Eigen/Eigen>
++#include <Eigen/Core>
++#include <Eigen/Geometry>
++#include<Eigen/StdVector>
++//VTK headers
++#include <vtkSmartPointer.h>
++#include <vtkTransform.h>
++#include <vtkPoints.h>
++#include <vtkPolyData.h>
++#include <vtkNew.h>
++#include <vtkPolyDataWriter.h>
++#include <vtkIntArray.h>
++#include <vtkPointData.h>
++
++//Other headers
++#include <vector>
++#include <deque>
++#include <iostream>
++#include <fstream>
++typedef pcl::PointCloud<pcl::PointXYZ> PointCloud3D;
++typedef std::pair<double,double> fitness_nr;
++
++namespace Fitness
++{
++class FitnessScore
++{
++	public:
++		FitnessScore(void);
++		~FitnessScore();
++		ofstream fitnessresults;
++		fitness_nr GetFitnessScore(double maximumFitness, PointCloud3D::Ptr inputTransformedCloud, PointCloud3D::Ptr inputTarget);
++};
++
++}
+\ No newline at end of file
+Index: IndividualFrameRegistration.cpp
+===================================================================
+--- IndividualFrameRegistration.cpp	(revision 0)
++++ IndividualFrameRegistration.cpp	(working copy)
+@@ -0,0 +1,177 @@
++#include "IndividualFrameRegistration.h"
++//Current headers
++#include "common.h"
++#include "Track.h"
++
++//Boost headers
++#include <boost/lexical_cast.hpp>
++#include <boost/property_tree/ptree.hpp>
++#include <boost/tuple/tuple.hpp>
++#include "parameters.h"
++//PCL headers
++#include <pcl/kdtree/kdtree_flann.h>
++#include <pcl/registration/transformation_estimation_lm.h>
++#include <pcl/registration/warp_point_rigid_3d.h>
++#include <pcl/registration/icp.h>
++#include <pcl/registration/ia_ransac.h>
++#include <pcl/registration/icp_nl.h>
++#include <pcl/point_cloud.h>
++#include <pcl/point_types.h>
++#include <pcl/registration/registration.h>
++#include <Eigen/Eigen>
++#include <Eigen/Core>
++#include <Eigen/Geometry>
++#include<Eigen/StdVector>
++//Other headers
++#include <vector>
++#include <deque>
++#include <iostream>
++#include <tuple>
++// Local headers
++#include "TransformInterpolation.h"
++#include "VTKPCLBridge.h"
++
++using namespace std;
++typedef std::vector<FrameType, Eigen::aligned_allocator<FrameType> > PointCloudCollection;
++typedef std::pair<PointCloud3D::Ptr, Matrix4fUnaligned> FrameType;
++
++namespace Tracking
++{
++	IndividualFrameRegistration::IndividualFrameRegistration(void)
++	{
++		this->numberOfFramesForAlignment = 3;
++	}
++	IndividualFrameRegistration::~IndividualFrameRegistration()
++	{
++	}
++	/** Find the first frame for multi-sequence stabilized registration
++	@return N frames from th end of the fragments.
++	*/
++	int IndividualFrameRegistration::GetnumberOfFramesForAlignment()
++	{
++		return this->numberOfFramesForAlignment;
++	}
++	PointCloudCollection::iterator IndividualFrameRegistration::FindFirstFrameForRegistration(Track *track)
++	{
++		PointCloudCollection::iterator it; 
++		if(track->GetFrameCollection().size() < this->GetnumberOfFramesForAlignment())
++			it = track->GetFrameCollection().begin();
++		else
++		{
++			it = track->GetFrameCollection().end();
++			std::advance(it, -(this->GetnumberOfFramesForAlignment()));
++		}
++		return it;
++	}
++	void IndividualFrameRegistration::SetNumberOfFramesForAlignment(int numberOfFrames)
++	{
++		this->numberOfFramesForAlignment = numberOfFrames;
++	}
++	bool IndividualFrameRegistration::RegisterInternal(Track *track,PointCloud3D::Ptr keypoints )
++	{		
++		// Fundamental algorithm
++		// Take a maximum of this->numberOfFramesForAlignment from the tracker, and try to align them
++		// separately to the incoming frame.
++		// Accumulate and interpolate the transforms from each pair that actually converged.
++
++		// These three keep track of the converged transforms.
++		int convergedCount = 0;
++		std::vector<QuaternionfUnaligned> convergedQuats;
++		std::vector<Vector3fUnaligned> convergedVecs;
++
++		// This is the first frame to try aligning with.
++		PointCloudCollection::iterator it = this->FindFirstFrameForRegistration(track);
++		PointCloudCollection::iterator startIt = it;
++		// Perform ICP alignment
++		int i = 0;
++		for (it; it != track->GetFrameCollection().end(); ++it)
++		{
++			// Each frame in the fragments collection consists of
++			// a) the keypoints of that frame
++			// b) the transform matrix associated with that frame
++			// Extract them for use.
++			PointCloud3D::Ptr frame = it->first;
++			Eigen::Matrix4f matrix = it->second;
++
++			// These are just working variables.
++			Eigen::Matrix4f transformForward, transformReverse, newTransform;
++			Eigen::Vector3f oldTranslation;
++			Eigen::Quaternionf oldRotation;
++			double fitness1, fitness2, fitness;
++
++			// Decompose last transform to get the translation and rotation.
++			std::tr1::tie(oldTranslation, oldRotation) = DecomposeTransform(matrix);
++
++			// Forward and reverse ICP alignment. This reduces errors.
++			bool converged1 = this->PerformRegistration(keypoints, frame, fitness1, transformForward, this->GetlastTransform());
++			bool converged2 = this->PerformRegistration(frame, keypoints, fitness2, transformReverse, Eigen::Matrix4f(this->GetlastTransform().inverse()));
++			converged1 &= this->CheckForAngleToXAxis(transformForward);
++			converged2 &= this->CheckForAngleToXAxis(Eigen::Matrix4f(transformReverse.inverse()));
++
++			//WRITE_TO_DEBUG(endl << "Fitness:" << converged1 << ":" << fitness1 << " " << converged2 << ":" << fitness2 << " " << fitness << " Transform ");
++			//WRITE_TO_DEBUG(transformForward(0, 3) << " " << transformReverse(0, 3) << " ");
++			if (converged1 && converged2)
++			{
++				// If both frames have converged, but one's much better than the other, use that alone.
++				if (fitness1 < fitness2 * 0.1)
++				{
++					newTransform = transformForward;
++					fitness = fitness1;
++				}
++				else if (fitness2 < fitness1 * 0.1)
++				{
++					newTransform = transformReverse;
++					fitness = fitness2;
++				}
++				else
++				{
++					// If both frames converged, interpolate them.
++					newTransform = InterpolateTransforms(transformForward, Eigen::Matrix4f(transformReverse.inverse()), 0.5);
++					fitness = (fitness1 + fitness2)/2;
++				}
++			}
++			else if (converged1)
++			{
++				// Only forward converged, so take that alone.
++				newTransform = transformForward;
++				fitness = fitness1;
++			}
++			else if (converged2)
++			{
++				// Same as above, except that the second one needs to be inversed.
++				newTransform = transformReverse.inverse();
++				fitness = fitness2;
++			}
++			//WRITE_TO_DEBUG(" Selected transform:" << newTransform(0, 3) << " " << newTransform(1, 3) << endl);
++			// Something converged. We can go ahead.
++			if ((converged1 || converged2))
++			{
++				// 'matrix' is the transform of the frame that already registered.
++				// The next step realigns the incoming keypoints to the reference system.
++				newTransform = matrix * newTransform;
++
++				// Decompose and store the converged stuff.
++				Eigen::Quaternionf rotationQuat;
++				Eigen::Vector3f translation;
++				std::tr1::tie(translation, rotationQuat) = DecomposeTransform(newTransform);
++				convergedQuats.push_back(rotationQuat);
++				convergedVecs.push_back(translation);
++				convergedCount++;
++
++				// Update best fitness.
++				/*this->fitness = this->fitness == -1 ? fitness : std::min(fitness, this->fitness);*/
++				this->SetFitness((this->GetFitness() == -1.0) ? fitness:(std::min(fitness,this->GetFitness())));
++			}
++			//WRITE_TO_DEBUG(" Final transform: " << newTransform(0, 3) << " " << newTransform(1, 3) << endl);
++		}
++		// Interpolate the converged transforms
++		if (convergedCount != 0)
++		{
++			
++			this->SetlastTransform(InterpolateTransforms(convergedQuats,convergedVecs));
++			return true;
++		}
++		// No convergence, so we just return.
++		return false;
++	}
++}
+\ No newline at end of file
+Index: IndividualFrameRegistration.h
+===================================================================
+--- IndividualFrameRegistration.h	(revision 0)
++++ IndividualFrameRegistration.h	(working copy)
+@@ -0,0 +1,24 @@
++#pragma once
++#include "common.h"
++#include "Registration.h"
++#include "TransformInterpolation.h"
++#include "Track.h"
++using namespace std;
++
++
++namespace Tracking
++{
++	class IndividualFrameRegistration: public RegistrationMethodBase
++	{
++	private:
++		int numberOfFramesForAlignment;
++	public:
++		IndividualFrameRegistration(void);
++		~IndividualFrameRegistration();
++		int GetnumberOfFramesForAlignment();
++		virtual bool RegisterInternal(Track *track,PointCloud3D::Ptr keypoints)  override;
++		virtual void SetNumberOfFramesForAlignment(int numberOfFrames) override;
++		PointCloudCollection::iterator FindFirstFrameForRegistration(Track *track);
++	
++	};
++}
+\ No newline at end of file
+Index: LastFrameRegistration.cpp
+===================================================================
+--- LastFrameRegistration.cpp	(revision 0)
++++ LastFrameRegistration.cpp	(working copy)
+@@ -0,0 +1,76 @@
++//Current headers
++#include "common.h"
++#include "LastFrameRegistration.h"
++#include "Track.h"
++//Boost headers
++#include <boost/lexical_cast.hpp>
++#include <boost/property_tree/ptree.hpp>
++#include <boost/tuple/tuple.hpp>
++#include "parameters.h"
++//PCL headers
++#include <pcl/kdtree/kdtree_flann.h>
++#include <pcl/registration/transformation_estimation_lm.h>
++#include <pcl/registration/warp_point_rigid_3d.h>
++#include <pcl/registration/icp.h>
++#include <pcl/registration/ia_ransac.h>
++#include <pcl/registration/icp_nl.h>
++#include <pcl/point_cloud.h>
++#include <pcl/point_types.h>
++#include <pcl/registration/registration.h>
++#include <Eigen/Eigen>
++#include <Eigen/Core>
++#include <Eigen/Geometry>
++#include<Eigen/StdVector>
++//Other headers
++#include <vector>
++#include <deque>
++#include <iostream>
++#include <tuple>
++
++
++using namespace std;
++typedef std::vector<FrameType, Eigen::aligned_allocator<FrameType> > PointCloudCollection;
++typedef std::pair<PointCloud3D::Ptr, Matrix4fUnaligned> FrameType;
++
++namespace Tracking
++{
++	LastFrameRegistration::LastFrameRegistration(void)
++	{
++	}
++	LastFrameRegistration::~LastFrameRegistration()
++	{
++	}
++	bool LastFrameRegistration::RegisterInternal(Track *track, PointCloud3D::Ptr keypoints)
++	{
++		double fitnessMerged1, fitnessMerged2;
++		Eigen::Matrix4f transformMerged;
++		Eigen::Matrix4f transform;
++		bool converged1, converged2;
++		FrameType lastFrame = track->GetFrameCollection().back();
++		// Forward registration - keypoints to merged cloud.
++		converged1 = this->PerformRegistration(keypoints, lastFrame.first, fitnessMerged1, transformMerged, Eigen::Matrix4f(Eigen::Matrix4f::Identity()));
++		converged1 &= this->CheckForConvergedPoints(track, keypoints, transformMerged);
++		//WRITE_TO_DEBUG("\nAlignment to merged: " << converged1 << " " << fitnessMerged1 << " " << transformMerged(0, 3) << " " << transformMerged(1, 3) << endl);
++		// Added to eliminate X axis rotations.
++		converged1 &= CheckForAngleToXAxis(transformMerged);
++		if (converged1)
++		{
++			transform = (transformMerged * lastFrame.second);
++			SetlastTransform(transform);
++			SetFitness(fitnessMerged1);
++			return true;
++		}
++		return false;
++	}
++
++
++
++
++
++
++
++
++
++
++
++}
+\ No newline at end of file
+Index: LastFrameRegistration.h
+===================================================================
+--- LastFrameRegistration.h	(revision 0)
++++ LastFrameRegistration.h	(working copy)
+@@ -0,0 +1,16 @@
++#pragma once
++#include "common.h"
++#include "Registration.h"
++#include "Track.h"
++using namespace std;
++
++namespace Tracking
++{
++	class LastFrameRegistration : public RegistrationMethodBase
++	{
++	public:
++		LastFrameRegistration(void);
++		~LastFrameRegistration();
++		virtual bool RegisterInternal(Track *track, PointCloud3D::Ptr keypoints) override ;	
++	};
++}
+\ No newline at end of file
